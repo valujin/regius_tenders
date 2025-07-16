@@ -13,6 +13,7 @@ export default function Settings({ refreshToken }) {
   const { userInfo, error, setError, refreshUserInfo } =
     useUserInfo(refreshToken);
   if (error) setError(error);
+
   const logout = useLogout();
 
   const [filters, setFilters] = useState({});
@@ -202,6 +203,87 @@ export default function Settings({ refreshToken }) {
     }
   };
 
+  const [allPlatforms, setAllPlatforms] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  // Load all available platforms
+  const getPlatforms = async () => {
+    try {
+      const response = await fetch(
+        "https://tendersiteapi.dev.regiuslab.by/v1/platforms/get_all",
+        { method: "GET", headers: { Accept: "application/json" } }
+      );
+      if (response.status === 404) return logout();
+      const data = await response.json();
+      if (response.ok) setAllPlatforms(data);
+    } catch (err) {
+      notify({ title: "Ошибка", message: err.toString(), type: "danger" });
+    }
+  };
+
+  useEffect(() => {
+    getPlatforms();
+  }, []);
+
+  // Initialize selected platform IDs
+  useEffect(() => {
+    if (userInfo?.platforms) {
+      setSelectedIds(userInfo.platforms.map((p) => p.id));
+    }
+  }, [userInfo]);
+
+  // Toggle selection and sync
+  const handleToggle = async (platformId) => {
+    setLoader(true);
+    const newIds = selectedIds.includes(platformId)
+      ? selectedIds.filter((id) => id !== platformId)
+      : [...selectedIds, platformId];
+    setSelectedIds(newIds);
+
+    // Prepare payload
+    const selectedPlatforms = newIds.map((id) => {
+      const plat = allPlatforms.find((p) => p.id === id);
+      return { name: plat.name, region: plat.region, url: plat.url };
+    });
+
+    try {
+      const { response } = await tryProtectedRequest({
+        url: "https://tendersiteapi.dev.regiuslab.by/v1/user/me",
+        method: "PATCH",
+        body: { selected_platforms: selectedPlatforms },
+        token: cookies.auth_token,
+        refreshToken,
+        logout,
+      });
+      if (response.ok) {
+        notify({
+          title: "Успешно",
+          message: "Платформы обновлены",
+          type: "success",
+        });
+        refreshUserInfo();
+      } else {
+        notify({
+          title: "Ошибка",
+          message: "Не удалось обновить платформы",
+          type: "danger",
+        });
+      }
+    } catch (err) {
+      notify({ title: "Ошибка", message: "Сетевая ошибка", type: "danger" });
+    } finally {
+      setLoader(false);
+    }
+  };
+
+  // Split lists
+  const selectedPlatforms = allPlatforms.filter((p) =>
+    selectedIds.includes(p.id)
+  );
+  const availablePlatforms = allPlatforms.filter(
+    (p) => !selectedIds.includes(p.id)
+  );
+
   return (
     <div className="flex flex-col gap-[40px] p-[20px]">
       {loader && <Loader isFull={true} />}
@@ -237,6 +319,7 @@ export default function Settings({ refreshToken }) {
           </div>
         </div>
       )}
+
       {showPasswordPopup && (
         <div className="absolute top-0 right-0 left-0 bottom-0 backdrop-blur-xs bg-[var(--main)]/50 dark:bg-[var(--main)]/10   z-99 h-screen flex">
           <div className="bg-[var(--bg)] max-w-[500px] m-auto w-full p-[30px] rounded-2xl flex flex-col items-center gap-[20px]">
@@ -316,6 +399,68 @@ export default function Settings({ refreshToken }) {
                   Изменить пароль
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <p className="text-2xl font-medium">Выбранные платформы</p>
+            <div className="flex flex-wrap gap-4">
+              {selectedPlatforms.length > 0 ? (
+                selectedPlatforms.map((platform) => (
+                  <div
+                    key={platform.id}
+                    className="flex flex-col items-start gap-2"
+                  >
+                    <div className="p-3 rounded-lg border border-main bg-main/10">
+                      <p className="uppercase font-semibold">{platform.name}</p>
+                      <p className="text-xs opacity-60 uppercase">
+                        {platform.region}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle(platform.id)}
+                      className="px-4 py-2 rounded-xl bg-red-200 text-red-800 border-red-400 border min-w-[100px]"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ))
+              ) : selectedIds.length === 0 ? (
+                <p>Нет выбранных платформ</p>
+              ) : (
+                <Loader isFull={false} color={"var(--main)"} />
+              )}
+            </div>
+          </div>
+
+          {/* Доступные платформы */}
+          <div className="flex flex-col gap-4">
+            <p className="text-2xl font-medium">Доступные платформы</p>
+            <div className="flex flex-wrap gap-4">
+              {availablePlatforms.length > 0 ? (
+                availablePlatforms.map((platform) => (
+                  <div
+                    key={platform.id}
+                    className="flex flex-col items-start gap-2 p-3 rounded-lg border border-main bg-main/10"
+                  >
+                    <div className=" rounded-lg border border-transparent hover:border-main/50">
+                      <p className="uppercase font-semibold">{platform.name}</p>
+                      <p className="text-xs opacity-60 uppercase">
+                        {platform.region}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleToggle(platform.id)}
+                      className="px-4 py-2 rounded-xl bg-main/90 text-white hover:bg-main min-w-[100px] p-[7px_15px] w-fit rounded-xl text-white justify-center whitespace-nowrap
+    bg-[var(--main)]/90 cursor-pointer hover:bg-[var(--main)] "
+                    >
+                      Добавить
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <Loader isFull={false} color={"var(--main)"} />
+              )}
             </div>
           </div>
 
